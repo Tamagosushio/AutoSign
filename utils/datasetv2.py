@@ -351,8 +351,6 @@ class PoseDatasetV2(Dataset):
         else:
             self.aug_config = augmentation_config
         
-        print(f"Using augmentation config: {augmentation_config}")
-        
         if pose_data_path is None:
             pose_data_path = "data/pose_data_isharah1000_hands_lips_body_May12.pkl"
         

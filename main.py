@@ -58,6 +58,12 @@ def setup_training_data(mode, batch_size=64, use_augmentation=True):
     )
     
     transform = transforms.Compose([GaussianNoise()]) if use_augmentation else None
+
+    if use_augmentation:
+        print("Using augmentation config: aggressive")
+    else:
+        print("Not using augmentation")
+
     dataset_train = PoseDatasetV2(
         dataset_name2="isharah",
         label_csv=train_csv,
