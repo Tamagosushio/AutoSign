@@ -334,7 +334,8 @@ class PoseDatasetV2(Dataset):
 
     def __init__(self, dataset_name2, label_csv, split_type, target_enc_df, transform=None, 
                 augmentations=True, augmentations_prob=0.5, additional_joints=True, 
-                augmentation_config='moderate', pose_data_path=None, include_face=False, exclude_body=False):
+                augmentation_config='moderate', pose_data_path=None, include_face=False, exclude_body=False,
+                additional_pose_files=None, vocab_map=None):
 
         self.dataset_name = dataset_name2
         self.split_type = split_type 
@@ -356,14 +357,32 @@ class PoseDatasetV2(Dataset):
             pose_data_path = "data/pose_data_isharah1000_hands_lips_body_May12.pkl"
         
         with open(pose_data_path, 'rb') as f:
-            print(f"Loading pose data from {pose_data_path}")
+            print(f"Loading base pose data from {pose_data_path}")
             self.pose_dict = pickle.load(f)
-
-
-
 
         self.files = []
         self.labels = []
+
+        if additional_pose_files is not None:
+            for pkl_path in additional_pose_files:
+                if not os.path.exists(pkl_path):
+                    print(f"Warning: Additional pose data file not found: {pkl_path}")
+                    continue
+                print(f"Loading additional pose data from {pkl_path}")
+                try:
+                    with open(pkl_path, 'rb') as f:
+                        data = pickle.load(f)
+                        self.pose_dict.update(data)
+                        if self.split_type == "train" and vocab_map is not None:
+                            for key,val in data.items():
+                                self.files.append(key)
+                                encoded_label = encode_text_to_tokens(val["label"], vocab_map)
+                                self.labels.append(encoded_label)
+                except Exception as e:
+                    print(f"Error loading {pkl_path}: {e}")
+
+        print(f"Total samples loaded in pose_dict: {len(self.pose_dict)}")
+
 
         self.all_data = pd.read_csv(label_csv, delimiter="|")
         # if "isharah" in self.dataset_name:
@@ -417,7 +436,7 @@ class PoseDatasetV2(Dataset):
         right_hand = pose_data[:, 0:21, :2]
         left_hand = pose_data[:, 21:42, :2]
         lips = pose_data[:, 42:42+NUM_LIPS, :2]
-        body = pose_data[:,42+NUM_LIPS:]
+        body = pose_data[:,42+NUM_LIPS:, :2]
 
         right_joints, left_joints, face_joints, body_joints = [], [], [], []
 

@@ -350,7 +350,7 @@ def enhanced_training_pipeline_with_wer(mode, resume_checkpoint=None):
     config = AutoSignConfig(
         vocab_size=vocab_info['vocab_size'],
         attn_implementation='eager',
-        gpt2_hf_model='aubmindlab/aragpt2-base',
+        gpt2_hf_model=None,
         use_1dcnn=True
     )
     

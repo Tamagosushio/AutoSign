@@ -73,7 +73,7 @@ def create_processed_dataframe(df: pd.DataFrame, target_column: str, vocab_map: 
     processed_df['enc'] = encoded_texts
     return processed_df
 
-def load_and_process_text_data(train_csv: str, dev_csv: str, target_column: str = 'gloss'):
+def load_and_process_text_data(train_csv: str, dev_csv: str, target_column: str = 'gloss', additional_pose_files: List[str] = None):
     """Load and process text data
     
     Args:
@@ -92,6 +92,21 @@ def load_and_process_text_data(train_csv: str, dev_csv: str, target_column: str 
     print(f"Loaded {len(train_df)} train, {len(dev_df)} dev samples")
     
     all_text = train_df[target_column].tolist()
+    
+    if additional_pose_files:
+        import pickle
+        import os
+        for pkl_path in additional_pose_files:
+            if os.path.exists(pkl_path):
+                try:
+                    with open(pkl_path, 'rb') as f:
+                        data = pickle.load(f)
+                        for key, val in data.items():
+                            if isinstance(val, dict) and 'label' in val:
+                                all_text.append(val['label'])
+                except Exception as e:
+                    print(f"Error loading {pkl_path} for vocabulary: {e}")
+
     vocab_map, inv_vocab_map, vocab_list = create_vocabulary(all_text)
     
     train_processed = create_processed_dataframe(train_df, target_column, vocab_map)
@@ -185,7 +200,7 @@ def decode_labels(labels, vocab_info):
     return ground_truths
 
 
-def test_load_and_process_text_data(train_csv: str, dev_csv: str, test_csv: str, target_column: str = 'gloss'):
+def test_load_and_process_text_data(train_csv: str, dev_csv: str, test_csv: str, target_column: str = 'gloss', additional_pose_files: List[str] = None):
     """Load and process text data"""
     train_df = pd.read_csv(train_csv, delimiter="|")
     dev_df = pd.read_csv(dev_csv, delimiter="|")
@@ -199,6 +214,21 @@ def test_load_and_process_text_data(train_csv: str, dev_csv: str, test_csv: str,
     
     # Use training data to create vocabulary (consistent with training)
     all_text = train_df[target_column].tolist()
+    
+    if additional_pose_files:
+        import pickle
+        import os
+        for pkl_path in additional_pose_files:
+            if os.path.exists(pkl_path):
+                try:
+                    with open(pkl_path, 'rb') as f:
+                        data = pickle.load(f)
+                        for key, val in data.items():
+                            if isinstance(val, dict) and 'label' in val:
+                                all_text.append(val['label'])
+                except Exception as e:
+                    print(f"Error loading {pkl_path} for vocabulary: {e}")
+
     vocab_map, inv_vocab_map, vocab_list = create_vocabulary(all_text)
     
     test_processed = create_processed_dataframe(test_df, target_column, vocab_map)

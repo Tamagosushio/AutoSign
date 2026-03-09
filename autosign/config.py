@@ -9,7 +9,7 @@ class AutoSignConfig:
     """
     def __init__(
         self,
-        gpt2_hf_model: str = 'aubmindlab/aragpt2-base',
+        gpt2_hf_model: Optional[str] = None, # 'aubmindlab/aragpt2-base' or None
         # vit_hf_model: str = 'google/vit-base-patch16-224',
         vocab_size: Optional[int] = 50257,
         max_position_embeddings: Optional[int] = 1200,
@@ -29,7 +29,7 @@ class AutoSignConfig:
         pose_embedding_length: Optional[int] = 100,  
         augmentation_config: Optional[Union[str, Dict[str, Any]]] = 'moderate',
         rotation_angle: Optional[float] = 0.0,  # Default no rotation
-        pose_data_path: str = "data/pose_data_isharah1000_hands_lips_body_May12.pkl",
+        pose_data_path: Optional[str] = "data/pose_data_isharah1000_hands_lips_body_May12.pkl",
         pose_dropout: Optional[float] = 0.1,
         include_face: bool = False,
         use_scheduler: bool = True,

@@ -6,23 +6,26 @@ from matplotlib.animation import FuncAnimation
 import os
 
 # Load the pickle file
-with open('arabic/pose_data_isharah1000_hands_lips_body_May12.pkl', 'rb') as f:
+with open("./hogehoge_dataset.pkl", "rb") as f:
     data_dict = pickle.load(f)
 
 # Target IDs to process
-target_ids = ['14_0004', '14_0001']
+target_ids = ["hogehoge"]
 
 # Constants
 NUM_LIPS = 19
-FRAME_SKIP = 8
+FRAME_SKIP = 1
 NORMALIZE = True  # Set to False to see original behavior
 SCALE_NORMALIZE = True  # Also normalize scale
 
 def normalize_frame(frame, num_lips=19):
     """Normalize a frame to center it and optionally scale it."""
+    # Ensure frame is 2D
+    frame = frame[:, :2]
+
     # Body keypoints start after hands and lips
     body_start = 42 + num_lips
-    body = frame[body_start:]
+    body = frame[body_start:, :2]
     
     body_center = np.mean(body, axis=0)
     
@@ -61,11 +64,11 @@ def animate_frame(frame_idx, keypoints, fig, ax):
     if NORMALIZE:
         frame = normalize_frame(frame, NUM_LIPS)
     
-    rh = frame[0:21]
-    lh = frame[21:42]
-    lips = frame[42:42+NUM_LIPS]
-    body = frame[42+NUM_LIPS:]
-    
+    rh = frame[0:21, :2]
+    lh = frame[21:42, :2]
+    lips = frame[42:42+NUM_LIPS, :2]
+    body = frame[42+NUM_LIPS:, :2]
+
     combined = np.concatenate([rh, lh, lips, body], axis=0)
     
     rh_offset = 0
@@ -118,9 +121,10 @@ for sample_id in target_ids:
             repeat=True
         )
         
-        gif_path = os.path.join(output_dir, f'{sample_id}_pose_animation.gif')
+        gif_id = sample_id.replace('/', '_')
+        gif_path = os.path.join(output_dir, f'{gif_id}_pose_animation.gif')
         print(f"Saving GIF to {gif_path}...")
-        anim.save(gif_path, writer='pillow', fps=10)
+        anim.save(gif_path, writer='pillow', fps=30)
         
         plt.close(fig)
         print(f"Saved {sample_id}")

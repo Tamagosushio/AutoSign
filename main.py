@@ -11,6 +11,7 @@ import numpy as np
 import time
 from utils.utils import GaussianNoise, send_inputs_to_device, decode_predictions, decode_labels, load_and_process_text_data
 from utils.metrics import wer_list
+from utils.discord import post_discord
 import random
 import argparse
 from torch.nn.utils.rnn import pad_sequence
@@ -40,23 +41,34 @@ def custom_collate_fn(batch):
         'labels': labels_padded
     }
 
-def setup_training_data(mode):
+def setup_training_data(mode, batch_size=64, use_augmentation=True):
     """Setup data loaders"""
     train_csv = f"annotations_v2/{mode}/train.txt" 
     dev_csv = f"annotations_v2/{mode}/dev.txt"   
+    pose_list_txt = f"annotations_v2/{mode}/pose_data.txt"
+
+    pose_data_path = "./datasets/all_data.pkl"
+    additional_pose_files = []
+    if os.path.exists(pose_list_txt):
+        with open(pose_list_txt, 'r', encoding='utf-8') as f:
+            additional_pose_files = [line.strip() for line in f if line.strip()]
 
     train_processed, dev_processed, vocab_map, inv_vocab_map, vocab_list = load_and_process_text_data(
-        train_csv, dev_csv, target_column='gloss'
+        train_csv, dev_csv, target_column='gloss', additional_pose_files=additional_pose_files
     )
     
+    transform = transforms.Compose([GaussianNoise()]) if use_augmentation else None
     dataset_train = PoseDatasetV2(
         dataset_name2="isharah",
         label_csv=train_csv,
         split_type="train",
         target_enc_df=train_processed,
-        augmentations=True,
+        vocab_map=vocab_map,
+        augmentations=use_augmentation,
         augmentation_config='aggressive',
-        transform=transforms.Compose([GaussianNoise()])
+        transform=transform,
+        pose_data_path=pose_data_path,
+        additional_pose_files=additional_pose_files
     )
     
     dataset_dev = PoseDatasetV2(
@@ -64,12 +76,13 @@ def setup_training_data(mode):
         label_csv=dev_csv,
         split_type="dev",
         target_enc_df=dev_processed,
-        augmentations=False
+        augmentations=False,
+        pose_data_path=pose_data_path
     )
     
     train_loader = DataLoader(
         dataset_train, 
-        batch_size=4, 
+        batch_size=batch_size,
         shuffle=True, 
         num_workers=10,
         collate_fn=custom_collate_fn 
@@ -77,7 +90,7 @@ def setup_training_data(mode):
     
     dev_loader = DataLoader(
         dataset_dev, 
-        batch_size=4, 
+        batch_size=batch_size,
         shuffle=False, 
         num_workers=8,
         collate_fn=custom_collate_fn  
@@ -91,6 +104,7 @@ def setup_training_data(mode):
     }
     
     print(f"[DATA] Training: {len(dataset_train)}, Dev: {len(dataset_dev)}, Vocab: {len(vocab_list)}")
+    print(f"Vocab: {vocab_list}")
     return train_loader, dev_loader, vocab_info
 
 def save_checkpoint(model, optimizer, epoch, train_loss, val_loss, val_wer, checkpoint_path):
@@ -291,8 +305,11 @@ def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info
                     pred_file.write(f"Match: {match}\n")
                     pred_file.write("-" * 40 + "\n\n")
     
-    wer_results = wer_list(all_predictions, all_ground_truths)
-    wer_score = wer_results["wer"]
+    if not all_predictions:
+        wer_score = 0.0
+    else:
+        wer_results = wer_list(all_predictions, all_ground_truths)
+        wer_score = wer_results["wer"]
     
     # Calculate accuracy 
     correct = sum(1 for pred, gt in zip(all_predictions, all_ground_truths) 
@@ -312,14 +329,14 @@ def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info
     return avg_loss, wer_score
 
 
-def enhanced_training_pipeline_with_wer_and_scheduler(mode):
+def enhanced_training_pipeline_with_wer_and_scheduler(mode, gpu_id=0, run_id=1, epochs=100, batch_size=64, use_augmentation=True):
     """Training pipeline with optional learning rate scheduling"""
     print("="*60)
     print("="*60)
     
     # Setup (same as before)
-    train_loader, dev_loader, vocab_info = setup_training_data(mode)
-    work_dir = f"./training_outputs/12"
+    train_loader, dev_loader, vocab_info = setup_training_data(mode, batch_size=batch_size, use_augmentation=use_augmentation)
+    work_dir = f"./training_outputs/{mode}/run_{run_id}"
     os.makedirs(work_dir, exist_ok=True)
     
     # Model setup
@@ -329,14 +346,14 @@ def enhanced_training_pipeline_with_wer_and_scheduler(mode):
     config = AutoSignConfig(
         vocab_size=vocab_info['vocab_size'],
         attn_implementation='eager',
-        gpt2_hf_model='aubmindlab/aragpt2-base',
+        gpt2_hf_model=None,
     )
     
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device_name = f'cuda:{gpu_id}' if torch.cuda.is_available() else 'cpu'
+    device = torch.device(device_name)
+    print(f"Using device: {device}")
     model = AutoSignLMHeadModel(config)
     model.to(device=device)
-    
-    EPOCHS = 100
     
     optimizer = torch.optim.AdamW(
         model.parameters(), 
@@ -372,9 +389,9 @@ def enhanced_training_pipeline_with_wer_and_scheduler(mode):
     print(f"Early stopping patience: {PATIENCE} epochs")
     print(f"Use scheduler: {config.use_scheduler}")
     
-    for epoch in range(EPOCHS):
+    for epoch in range(epochs):
         print(f"\n{'='*50}")
-        print(f"[EPOCH {epoch + 1}/{EPOCHS}] Starting...")
+        print(f"[EPOCH {epoch + 1}/{epochs}] Starting...")
         print(f"[EPOCH {epoch + 1}] Current LR: {optimizer.param_groups[0]['lr']:.2e}")
         
         model.train()
@@ -413,7 +430,7 @@ def enhanced_training_pipeline_with_wer_and_scheduler(mode):
                 })
         
         # Calculate training loss average
-        avg_train_loss = sum(epoch_losses) / len(epoch_losses)
+        avg_train_loss = sum(epoch_losses) / len(epoch_losses) if epoch_losses else 0.0
         
         print(f"[EPOCH {epoch + 1}] Evaluating with WER...")
         val_loss, val_wer = evaluate_model_with_wer_autoregressive(
@@ -457,17 +474,17 @@ def enhanced_training_pipeline_with_wer_and_scheduler(mode):
             # Save best model
             save_best_model(model, optimizer, epoch + 1, avg_train_loss, val_loss, val_wer, work_dir)
             
-        else:
-            # No improvement
-            patience_counter += 1
-            print(f"  No improvement. Patience: {patience_counter}/{PATIENCE}")
+        # else:
+        #     # No improvement
+        #     patience_counter += 1
+        #     print(f"  No improvement. Patience: {patience_counter}/{PATIENCE}")
             
-            # Early stopping check
-            if patience_counter >= PATIENCE:
-                print(f"\nEARLY STOPPING TRIGGERED!")
-                print(f"No improvement for {PATIENCE} epochs.")
-                print(f"Best WER: {best_wer:.4f} at epoch {best_epoch + 1}")
-                break
+        #     # Early stopping check
+        #     if patience_counter >= PATIENCE:
+        #         print(f"\nEARLY STOPPING TRIGGERED!")
+        #         print(f"No improvement for {PATIENCE} epochs.")
+        #         print(f"Best WER: {best_wer:.4f} at epoch {best_epoch + 1}")
+        #         break
     
     print(f"\n{'='*60}")
     print(f"TRAINING COMPLETE!")
@@ -486,7 +503,8 @@ def enhanced_training_pipeline_with_wer_and_scheduler(mode):
         'best_epoch': best_epoch,
         'model': model,
         'vocab_info': vocab_info,
-        'scheduler_used': scheduler is not None
+        'scheduler_used': scheduler is not None,
+        'work_dir': work_dir
     }
 
 
@@ -528,7 +546,8 @@ def plot_training_curves(results):
             ax.axvline(x=best_epoch + 1, color='red', linestyle='--', alpha=0.7)
         
         plt.tight_layout()
-        plt.savefig('training_curves.png', dpi=300, bbox_inches='tight')
+        work_dir = results.get('work_dir', '.')
+        plt.savefig(os.path.join(work_dir, 'training_curves.png'), dpi=300, bbox_inches='tight')
         print(f"Training curves with scheduler saved!")
         
     except ImportError:
@@ -587,7 +606,8 @@ def plot_training_curves_with_wer(results):
         plt.tight_layout()
         
         # Save plot
-        plot_filename = 'training_curves_with_early_stopping.png'
+        work_dir = results.get('work_dir', '.')
+        plot_filename = os.path.join(work_dir, 'training_curves_with_early_stopping.png')
         plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
         print(f"\nTraining curves saved to: {plot_filename}")
         
@@ -601,7 +621,7 @@ def plot_training_curves_with_wer(results):
         plt.legend(fontsize=11)
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig('loss_curves.png', dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(work_dir, 'loss_curves.png'), dpi=300, bbox_inches='tight')
         
         # WER only
         plt.figure(figsize=(10, 6))
@@ -609,11 +629,11 @@ def plot_training_curves_with_wer(results):
         plt.axvline(x=best_epoch + 1, color='green', linestyle='--', alpha=0.7, label=f'Best WER: {best_wer:.4f}')
         plt.xlabel('Epoch', fontsize=12)
         plt.ylabel('WER', fontsize=12)
-        plt.title('Validation WER (Lower is Better)', fontsize=14, fontweight='bold')
+        plt.title('Validation WER', fontsize=14, fontweight='bold')
         plt.legend(fontsize=11)
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig('wer_curve.png', dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(work_dir, 'wer_curve.png'), dpi=300, bbox_inches='tight')
         
         
     except ImportError:
@@ -623,19 +643,74 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', type=str, default='SI', 
-                        choices=['US', 'SI'],
-                        help='Training mode: US or SI')
+    parser.add_argument('--mode', type=str)
+    parser.add_argument('--gpu', type=int, default=0, help='GPU ID to use (default: 0)')
+    parser.add_argument('--num_runs', type=int, default=1, help='Number of independent training runs')
+    parser.add_argument('--epochs', type=int, default=100, help='Number of training epochs (default: 100)')
+    parser.add_argument('--batch_size', type=int, default=64, help='Batch size for training and dev (default: 64)')
+    parser.add_argument('--disable_augmentation', action='store_true', help='Disable all data augmentations during training')
     args = parser.parse_args()
 
-    print(f"Starting training with mode: {args.mode}")
-    # results = enhanced_training_pipeline_with_wer(args.mode)
-    results = enhanced_training_pipeline_with_wer_and_scheduler(args.mode)
-    plot_training_curves_with_wer(results)
-    print("[DONE] Enhanced training with early stopping completed!")
+    print(f"Starting training with mode: {args.mode} on GPU: {args.gpu} for {args.num_runs} runs (Epochs: {args.epochs}, Batch Size: {args.batch_size})")
+    
+    all_best_wers = []
+    for run in range(1, args.num_runs + 1):
+        if args.num_runs > 1:
+            print(f"\n{'*'*60}")
+            print(f"*** STARTING RUN {run}/{args.num_runs} ***")
+            print(f"{'*'*60}\n")
+            
+        results = enhanced_training_pipeline_with_wer_and_scheduler(
+            args.mode, gpu_id=args.gpu, run_id=run, epochs=args.epochs, batch_size=args.batch_size, use_augmentation=not args.disable_augmentation
+        )
+        plot_training_curves_with_wer(results)
+        all_best_wers.append(results['best_wer'])
+        
+        
+    if args.num_runs > 1:
+        import statistics
+        
+        avg_wer = sum(all_best_wers) / len(all_best_wers)
+        max_wer = max(all_best_wers)
+        min_wer = min(all_best_wers)
+        median_wer = statistics.median(all_best_wers)
+        
+        wer_list_str = ['{:.4f}'.format(w) for w in all_best_wers]
+        
+        # コンソールへの出力
+        print(f"\n{'='*60}")
+        print(f"ALL {args.num_runs} RUNS COMPLETED!")
+        print(f"Augmentation: {'Disabled' if args.disable_augmentation else 'Enabled'}")
+        print(f"Best WERs for each run: {wer_list_str}")
+        print(f"Average Best WER: {avg_wer:.4f}")
+        print(f"Median Best WER:  {median_wer:.4f}")
+        print(f"Min Best WER:     {min_wer:.4f}")
+        print(f"Max Best WER:     {max_wer:.4f}")
+        print(f"{'='*60}\n")
+        
+        # ファイルとDiscordへの出力
+        summary_file = f"./training_outputs/{args.mode}/wer_summary.txt"
+        
+        with open(summary_file, "w", encoding="utf-8") as f:
+            f.write(f"Training Mode: {args.mode}\n")
+            f.write(f"Total Runs: {args.num_runs}\n")
+            f.write(f"Epochs: {args.epochs}\n")
+            f.write(f"Batch Size: {args.batch_size}\n")
+            f.write(f"Augmentation: {'Disabled' if args.disable_augmentation else 'Enabled'}\n\n")
+            f.write("Best WER for each run:\n")
+            for i, w in enumerate(all_best_wers, 1):
+                f.write(f"  Run {i}: {w:.4f}\n")
+            f.write(f"\nAverage Best WER: {avg_wer:.4f}\n")
+            f.write(f"Median Best WER:  {median_wer:.4f}\n")
+            f.write(f"Min Best WER:     {min_wer:.4f}\n")
+            f.write(f"Max Best WER:     {max_wer:.4f}\n")
+        
+        print(f"Summary saved to: {summary_file}")
+        
+        with open(summary_file, "r", encoding="utf-8") as f:
+            summary_content = f.read()
 
-
-
-
+        post_discord(message=f"```\n{summary_content}\n```")
+        print("Results posted to Discord.")
 
 

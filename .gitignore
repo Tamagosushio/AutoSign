@@ -168,3 +168,12 @@ cython_debug/
 */*.zip
 models/
 *.bin
+
+# Additional
+*.pkl
+test.py
+results.md
+/annotations_v2
+/datasets
+/join_interpolation
+/training_outputs

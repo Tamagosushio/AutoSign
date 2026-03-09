@@ -184,13 +184,17 @@ class AutoSignModel(nn.Module):
         """
 
         try:
-            print(f"Loading AraGPT2 model from: {config.gpt2_hf_model}")
+            if not config.gpt2_hf_model:
+                print("No pre-trained model specified via config.gpt2_hf_model. Skipping weights loading.")
+                raise Exception("Pre-trained model loading skipped.")
+
+            print(f"Loading GPT2 model from: {config.gpt2_hf_model}")
             
             aragpt2_model = AraGPT2Model.from_pretrained(config.gpt2_hf_model)
             
             pretrained_gpt2 = aragpt2_model.transformer
             
-            print(f"AraGPT2 vocab size: {pretrained_gpt2.wte.weight.shape[0]}")
+            print(f"Pre-trained vocab size: {pretrained_gpt2.wte.weight.shape[0]}")
             print(f"Current model vocab size: {config.vocab_size}")
 
             for i, (hidden_layer, pretrained_hidden_layer) in enumerate(zip(self.hidden_layers, pretrained_gpt2.h)):
