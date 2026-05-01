@@ -263,48 +263,25 @@ class PoseDatasetV2(Dataset):
     def normalize(self, pose):
         pose[:,:] -= pose[0]  
         pose[:,:] -= np.min(pose, axis=0)
-        
-        max_vals = np.max(pose, axis=0)
-        pose[:,:] /= max(max_vals)
-
         pose[:,:] = pose[:,:] - np.mean(pose[:,:])
         pose[:,:] = pose[:,:] / np.max(np.abs(pose[:,:]))
         pose[:,:] = pose[:,:] * 0.5
-
         return pose
 
     def normalize_face(self, pose):
-        #set coordinate frame as the lip
         pose[:,:] -= pose[0]  
         pose[:,:] -= np.min(pose, axis=0)
-        
-        #scale them to a box of 1x1
-        max_vals = np.max(pose, axis=0)
-        pose[:,:] /= max(max_vals)
-
-        # Subtract the mean from each element and divide by the maximum absolute value
-        # The values are then [-0.5,0.5] spread over zero 
         pose[:,:] = pose[:,:] - np.mean(pose[:,:])
         pose[:,:] = pose[:,:] / np.max(np.abs(pose[:,:]))
         pose[:,:] = pose[:,:] * 0.5
-
         return pose
 
     def normalize_body(self, pose ):
-        #set coordinate frame as the neck
         pose[:,:] -= pose[0]
         pose[:,:] -= np.min(pose, axis=0)
-        
-        #scale them to a box of 1x1
-        max_vals = np.max(pose, axis=0)
-        pose[:,:] /= max(max_vals)
-
-        # Subtract the mean from each element and divide by the maximum absolute value
-        # The values are then [-0.5,0.5] spread over zero 
         pose[:,:] = pose[:,:] - np.mean(pose[:,:])
         pose[:,:] = pose[:,:] / np.max(np.abs(pose[:,:]))
         pose[:,:] = pose[:,:] * 0.5
-
         return pose
 
     def augment_realistic_speed_change(self, pose_data, speed_range=(0.75, 1.25)):
