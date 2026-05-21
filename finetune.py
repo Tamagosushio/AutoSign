@@ -303,7 +303,7 @@ def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info
                     pred_file.write("-" * 40 + "\n\n")
     
     # Calculate WER
-    wer_results = wer_list(all_predictions, all_ground_truths)
+    wer_results = wer_list(all_ground_truths, all_predictions)
     wer_score = wer_results["wer"]
     
     correct = sum(1 for pred, gt in zip(all_predictions, all_ground_truths) 

@@ -314,7 +314,7 @@ def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info
     if not all_predictions:
         wer_score = 0.0
     else:
-        wer_results = wer_list(all_predictions, all_ground_truths)
+        wer_results = wer_list(all_ground_truths, all_predictions)
         wer_score = wer_results["wer"]
     
     # Calculate accuracy 
