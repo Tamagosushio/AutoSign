@@ -391,7 +391,9 @@ class PoseDatasetV2(Dataset):
         Raises:
             ValueError: If pose data is not found or is empty.
         """
-        pose_data = self.pose_dict[sample_id]['keypoints']
+        # Normalization and augmentation below contain in-place operations.
+        # Copy so repeated epochs/evaluations always start from the raw pose.
+        pose_data = np.array(self.pose_dict[sample_id]['keypoints'], copy=True)
         # print(f"Loading pose data for {sample_id}, shape: {pose_data.shape}")
 
         if pose_data is None or pose_data.shape[0] == 0:
