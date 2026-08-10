@@ -312,7 +312,7 @@ class PoseDatasetV2(Dataset):
     def __init__(self, dataset_name2, label_csv, split_type, target_enc_df, transform=None, 
                 augmentations=True, augmentations_prob=0.5, additional_joints=True, 
                 augmentation_config='moderate', pose_data_path=None, include_face=False, exclude_body=False,
-                additional_pose_files=None, vocab_map=None):
+                additional_pose_files=None, vocab_map=None, include_all_base_samples=False):
 
         self.dataset_name = dataset_name2
         self.split_type = split_type 
@@ -337,6 +337,19 @@ class PoseDatasetV2(Dataset):
 
         self.files = []
         self.labels = []
+
+        # Synthetic custom modes commonly keep labels inside the primary
+        # pickle and intentionally use a header-only train.txt.  Opt in from
+        # main.py only for an explicitly tagged ``train|...`` source so that
+        # legacy shared base datasets are never added to training by accident.
+        if self.split_type == "train" and include_all_base_samples:
+            if vocab_map is None:
+                raise ValueError("vocab_map is required when including all base samples")
+            for key, val in self.pose_dict.items():
+                if not isinstance(val, dict) or "label" not in val:
+                    raise KeyError(f"Training pose sample {key!r} has no label")
+                self.files.append(key)
+                self.labels.append(encode_text_to_tokens(val["label"], vocab_map))
 
         if additional_pose_files is not None:
             for pkl_path in additional_pose_files:
@@ -373,7 +386,11 @@ class PoseDatasetV2(Dataset):
             if enc_label.empty:
                 print(f"Warning: No encoded label found for sample ID {sample_id}. Skipping.")
 
-            if not enc_label.empty and sample_id in self.pose_dict.keys():
+            if (
+                not enc_label.empty
+                and sample_id in self.pose_dict.keys()
+                and sample_id not in self.files
+            ):
                 self.files.append(sample_id)
                 self.labels.append(enc_label.iloc[0])
 
@@ -525,6 +542,3 @@ class PoseDatasetV2(Dataset):
             'attention_mask': attention_mask, 
             'labels': label_tensor.clone()   
         }
-
-        
-    

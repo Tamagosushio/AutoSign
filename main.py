@@ -20,6 +20,37 @@ from utils.metrics import wer_list
 
 torch.set_float32_matmul_precision('high')
 
+def load_pose_data_config(pose_list_txt):
+    """pose_data.txtを読み、学習用と検証用のpickleへ分ける。
+
+    ``train|path`` / ``dev|path`` 形式に対応する。従来どおりパスだけが
+    書かれた行は、固定base datasetに追加する学習データとして扱う。
+    """
+    train_files = []
+    dev_files = []
+    tagged = False
+    if not os.path.exists(pose_list_txt):
+        return train_files, dev_files, tagged
+
+    with open(pose_list_txt, 'r', encoding='utf-8') as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '|' not in line:
+                train_files.append(line)
+                continue
+            split, path = (part.strip() for part in line.split('|', 1))
+            if split not in {'train', 'dev'}:
+                raise ValueError(
+                    f"Invalid pose_data.txt split {split!r}; expected 'train' or 'dev'"
+                )
+            if not path:
+                raise ValueError(f"Empty pose data path in {pose_list_txt}: {raw_line!r}")
+            tagged = True
+            (train_files if split == 'train' else dev_files).append(path)
+    return train_files, dev_files, tagged
+
 def custom_collate_fn(batch):
     """Custom collate function to handle variable-length sequences"""
     file_paths = [item['file_path'] for item in batch]
@@ -48,13 +79,28 @@ def setup_training_data(mode, batch_size=64, use_augmentation=True):
     pose_list_txt = f"annotations_v2/{mode}/pose_data.txt"
 
     pose_data_path = "./datasets/all_data.pkl"
-    additional_pose_files = []
-    if os.path.exists(pose_list_txt):
-        with open(pose_list_txt, 'r', encoding='utf-8') as f:
-            additional_pose_files = [line.strip() for line in f if line.strip()]
+    train_pose_files, dev_pose_files, tagged_pose_config = load_pose_data_config(pose_list_txt)
+    if tagged_pose_config:
+        if not train_pose_files or not dev_pose_files:
+            raise ValueError(
+                f"Tagged {pose_list_txt} must contain at least one train and one dev file"
+            )
+        train_pose_data_path = train_pose_files[0]
+        additional_pose_files = train_pose_files[1:]
+        vocabulary_pose_files = train_pose_files
+        dev_pose_data_path = dev_pose_files[0]
+        additional_dev_pose_files = dev_pose_files[1:]
+        include_all_train_base_samples = True
+    else:
+        train_pose_data_path = pose_data_path
+        additional_pose_files = train_pose_files
+        vocabulary_pose_files = train_pose_files
+        dev_pose_data_path = pose_data_path
+        additional_dev_pose_files = []
+        include_all_train_base_samples = False
 
     train_processed, dev_processed, vocab_map, inv_vocab_map, vocab_list = load_and_process_text_data(
-        train_csv, dev_csv, target_column='gloss', additional_pose_files=additional_pose_files
+        train_csv, dev_csv, target_column='gloss', additional_pose_files=vocabulary_pose_files
     )
     
     transform = transforms.Compose([GaussianNoise()]) if use_augmentation else None
@@ -73,8 +119,9 @@ def setup_training_data(mode, batch_size=64, use_augmentation=True):
         augmentations=use_augmentation,
         augmentation_config='aggressive',
         transform=transform,
-        pose_data_path=pose_data_path,
-        additional_pose_files=additional_pose_files
+        pose_data_path=train_pose_data_path,
+        additional_pose_files=additional_pose_files,
+        include_all_base_samples=include_all_train_base_samples
     )
     
     dataset_dev = PoseDatasetV2(
@@ -83,8 +130,21 @@ def setup_training_data(mode, batch_size=64, use_augmentation=True):
         split_type="dev",
         target_enc_df=dev_processed,
         augmentations=False,
-        pose_data_path=pose_data_path
+        pose_data_path=dev_pose_data_path,
+        additional_pose_files=additional_dev_pose_files
     )
+
+    if len(dataset_train) == 0:
+        raise RuntimeError(
+            f"Training dataset is empty for mode={mode!r}. "
+            f"Check {train_csv} and {pose_list_txt}."
+        )
+    if len(dataset_dev) == 0:
+        raise RuntimeError(
+            f"Validation dataset is empty for mode={mode!r}. "
+            f"The IDs in {dev_csv} were not found in dev pose sources: "
+            f"{[dev_pose_data_path, *additional_dev_pose_files]}"
+        )
     
     train_loader = DataLoader(
         dataset_train, 
@@ -248,6 +308,11 @@ def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info
     Returns:
         Tuple: Average loss and WER score
     """
+    if len(dataloader.dataset) == 0:
+        raise RuntimeError(
+            "Cannot calculate WER: validation dataset is empty. "
+            "Fix dev.txt and pose_data.txt instead of treating an empty evaluation as WER 0.0."
+        )
     print(f"Starting autoregressive evaluation with WER for epoch {epoch + 1}...")
     
     model.eval()
@@ -312,10 +377,9 @@ def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info
                     pred_file.write("-" * 40 + "\n\n")
     
     if not all_predictions:
-        wer_score = 0.0
-    else:
-        wer_results = wer_list(all_ground_truths, all_predictions)
-        wer_score = wer_results["wer"]
+        raise RuntimeError("Cannot calculate WER: validation produced no predictions")
+    wer_results = wer_list(all_ground_truths, all_predictions)
+    wer_score = wer_results["wer"]
     
     # Calculate accuracy 
     correct = sum(1 for pred, gt in zip(all_predictions, all_ground_truths) 
@@ -718,5 +782,3 @@ if __name__ == "__main__":
 
         post_discord(message=f"```\n{summary_content}\n```")
         print("Results posted to Discord.")
-
-
