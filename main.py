@@ -346,7 +346,8 @@ def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info
                     # Generate using autoregressive method
                     generated_ids = generate_autoregressive(
                         model, single_pose, vocab_info, device, 
-                        max_length=12, temperature=0.9, repetition_penalty=1.0
+                        # max_length=12, temperature=0.9, repetition_penalty=1.0
+                        max_length=20, temperature=0.9, repetition_penalty=1.0
                     )
                     
                     # Decode generated sequence
