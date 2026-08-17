@@ -191,8 +191,7 @@ def decode_labels(labels, vocab_info):
         for token_id in label_sequence:
             if token_id in inv_vocab_map:
                 word = inv_vocab_map[token_id]
-                # Skip special tokens
-                if word not in ['<pad>', '<bos>', '<eos>', '<unk>']:
+                if word not in ['<pad>', '<bos>', '<eos>']:
                     words.append(word)
         
         ground_truths.append(' '.join(words))

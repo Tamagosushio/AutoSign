@@ -369,7 +369,7 @@ def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info
                     for token_id in generated_sequence:
                         if token_id in vocab_info['inv_vocab_map']:
                             word = vocab_info['inv_vocab_map'][token_id]
-                            if word not in ['<pad>', '<bos>', '<eos>', '<unk>']:
+                            if word not in ['<pad>', '<bos>', '<eos>']:
                                 words.append(word)
                     
                     clean_prediction = ' '.join(words).strip()
