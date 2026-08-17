@@ -284,20 +284,6 @@ def generate_autoregressive(model, pose_values, vocab_info, device,
     
     return generated_ids
 
-def remove_duplicates(text):
-    """Remove consecutive duplicate words"""
-    if not text or len(text.split()) < 2:
-        return text
-    
-    words = text.split()
-    result = [words[0]]
-    
-    for word in words[1:]:
-        if word != result[-1]:
-            result.append(word)
-    
-    return ' '.join(result)
-
 def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info, work_dir, epoch):
     """
     Enhanced evaluation with autoregressive generation and WER metrics
@@ -369,8 +355,7 @@ def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info
                             if word not in ['<pad>', '<bos>', '<eos>', '<unk>']:
                                 words.append(word)
                     
-                    prediction = ' '.join(words)
-                    clean_prediction = remove_duplicates(prediction.strip())
+                    clean_prediction = ' '.join(words).strip()
                     ground_truth = batch_ground_truths[i]
                     
                     all_predictions.append(clean_prediction)
