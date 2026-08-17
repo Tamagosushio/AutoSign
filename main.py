@@ -17,6 +17,7 @@ import argparse
 from torch.nn.utils.rnn import pad_sequence
 from utils.utils import generate_autoregressive
 from utils.metrics import wer_list
+from autosign.config import AUGMENTATION_CONFIGS
 
 torch.set_float32_matmul_precision('high')
 
@@ -107,10 +108,20 @@ def setup_training_data(mode, batch_size=64, use_augmentation=True):
         train_csv, dev_csv, target_column='gloss', additional_pose_files=vocabulary_pose_files
     )
     
-    transform = transforms.Compose([GaussianNoise()]) if use_augmentation else None
+    augmentation_config_name = 'aggressive'
+    augmentation_config = AUGMENTATION_CONFIGS[augmentation_config_name]
+    augmentation_probability = 0.5
+    transform = None
+    if use_augmentation and augmentation_config.get('use_jitter', False):
+        transform = transforms.Compose([
+            GaussianNoise(
+                std=augmentation_config['jitter_std'],
+                probability=augmentation_probability,
+            )
+        ])
 
     if use_augmentation:
-        print("Using augmentation config: aggressive")
+        print(f"Using augmentation config: {augmentation_config_name}")
     else:
         print("Not using augmentation")
 
@@ -121,7 +132,8 @@ def setup_training_data(mode, batch_size=64, use_augmentation=True):
         target_enc_df=train_processed,
         vocab_map=vocab_map,
         augmentations=use_augmentation,
-        augmentation_config='aggressive',
+        augmentations_prob=augmentation_probability,
+        augmentation_config=augmentation_config_name,
         transform=transform,
         pose_data_path=train_pose_data_path,
         additional_pose_files=additional_pose_files,

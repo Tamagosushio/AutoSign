@@ -249,14 +249,18 @@ class PoseDatasetV2(Dataset):
         return pose_data
 
     def augment_data(self, data, angle):
-        """Updated to use configuration"""
+        """Apply configured spatial augmentation to hand keypoints."""
         if np.random.rand() < 0.5:
             data = np.array([self.rotate((0.5, 0.5), frame, angle) for frame in data])
-        if np.random.rand() < 0.5:
-            data = self.augment_jitter(data)
-        if np.random.rand() < 0.5:
-            data = self.augment_scale(data)
-        if np.random.rand() < 0.5:
+        if self.aug_config.get('use_jitter', False) and np.random.rand() < 0.5:
+            data = self.augment_jitter(
+                data, std_dev=self.aug_config.get('jitter_std', 0.01)
+            )
+        if self.aug_config.get('use_scale', False) and np.random.rand() < 0.5:
+            data = self.augment_scale(
+                data, scale_range=self.aug_config.get('scale_range', (0.8, 1.2))
+            )
+        if self.aug_config.get('use_dropout', False) and np.random.rand() < 0.5:
             data = self.augment_dropout(data)
         return data
 
@@ -324,9 +328,16 @@ class PoseDatasetV2(Dataset):
         self.exclude_body = exclude_body    
         
         if isinstance(augmentation_config, str):
-            self.aug_config = AUGMENTATION_CONFIGS.get(augmentation_config, AUGMENTATION_CONFIGS['moderate'])
+            if augmentation_config not in AUGMENTATION_CONFIGS:
+                raise ValueError(
+                    f"Unknown augmentation_config {augmentation_config!r}; "
+                    f"expected one of {sorted(AUGMENTATION_CONFIGS)}"
+                )
+            self.aug_config = dict(AUGMENTATION_CONFIGS[augmentation_config])
         else:
-            self.aug_config = augmentation_config
+            self.aug_config = dict(
+                augmentation_config or AUGMENTATION_CONFIGS['moderate']
+            )
         
         if pose_data_path is None:
             pose_data_path = "data/pose_data_isharah1000_hands_lips_body_May12.pkl"
@@ -416,16 +427,35 @@ class PoseDatasetV2(Dataset):
         if pose_data is None or pose_data.shape[0] == 0:
             raise ValueError(f"Error loading pose data for {sample_id}")
 
-        T, J, D = pose_data.shape
         aug = False
 
         if self.augmentations and np.random.rand() < self.augmentations_prob:
             aug = True
-            
-            angle = np.radians(np.random.uniform(-13, 13))
-            pose_data = self.augment_time_warp(pose_data)
-            pose_data = self.augment_frame_dropout(pose_data)
 
+            angle = np.radians(np.random.uniform(-13, 13))
+            if (
+                self.aug_config.get('use_speed_change', False)
+                and np.random.rand()
+                < self.aug_config.get('speed_change_prob', 0.0)
+            ):
+                pose_data = self.augment_realistic_speed_change(pose_data)
+            if self.aug_config.get('use_time_warp', False):
+                pose_data = self.augment_time_warp(
+                    pose_data,
+                    max_shift=self.aug_config.get('time_warp_shift', 2),
+                )
+            if self.aug_config.get('use_frame_dropout', False):
+                pose_data = self.augment_frame_dropout(
+                    pose_data,
+                    drop_prob=self.aug_config.get('frame_dropout_prob', 0.1),
+                )
+            if self.aug_config.get('use_sequence_masking', False):
+                pose_data = self.augment_sequence_masking(
+                    pose_data,
+                    mask_prob=self.aug_config.get('sequence_masking_prob', 0.15),
+                )
+
+        T, J, D = pose_data.shape
 
         right_hand = pose_data[:, 0:21, :2]
         left_hand = pose_data[:, 21:42, :2]

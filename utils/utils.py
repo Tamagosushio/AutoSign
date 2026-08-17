@@ -11,17 +11,27 @@ class GaussianNoise(object):
     Args:
         mean (float): Mean of the Gaussian noise.
         std (float): Standard deviation of the Gaussian noise.
+        probability (float): Probability of applying the noise.
     
     Returns:
         Tensor with added Gaussian noise.
     """
-    def __init__(self, mean=0.0, std=0.1):
+    def __init__(self, mean=0.0, std=0.1, probability=1.0):
+        if std < 0:
+            raise ValueError("std must be non-negative")
+        if not 0.0 <= probability <= 1.0:
+            raise ValueError("probability must be between 0 and 1")
         self.mean = mean
         self.std = std
+        self.probability = probability
 
     def __call__(self, tensor):
         if not isinstance(tensor, torch.Tensor):
             tensor = torch.from_numpy(np.array(tensor))
+        if self.probability == 0.0:
+            return tensor
+        if self.probability < 1.0 and torch.rand(1).item() >= self.probability:
+            return tensor
         noise = torch.randn_like(tensor) * self.std + self.mean
         return tensor + noise
 
@@ -313,4 +323,3 @@ def generate_autoregressive(model, pose_values, vocab_info, device,
             generated_ids = torch.cat([generated_ids, next_token], dim=1)
     
     return generated_ids
-
