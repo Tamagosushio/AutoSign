@@ -91,6 +91,7 @@ class AutoSignModel(nn.Module):
         past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None,
         attention_mask: Optional[torch.Tensor] = None,
         use_cache: Optional[bool] = False,
+        pose_lengths: Optional[torch.LongTensor] = None,
     ) -> AutoSignModelOutput:
         device = input_ids.device if input_ids is not None else pose_values.device
         input_ids = input_ids.view(-1, input_ids.shape[-1])
@@ -101,14 +102,55 @@ class AutoSignModel(nn.Module):
         else:
             past_length = past_key_values[0][0].size(-2)
 
+        if pose_lengths is None:
+            pose_lengths = torch.full(
+                (pose_values.size(0),),
+                pose_values.size(1),
+                dtype=torch.long,
+                device=pose_values.device,
+            )
+        else:
+            pose_lengths = pose_lengths.to(device=pose_values.device, dtype=torch.long)
+            if pose_lengths.ndim != 1 or pose_lengths.size(0) != pose_values.size(0):
+                raise ValueError("pose_lengths must contain one length per batch item")
+            if torch.any(pose_lengths <= 0) or torch.any(pose_lengths > pose_values.size(1)):
+                raise ValueError("pose_lengths must be within the padded pose sequence")
+
+        pose_positions = torch.arange(
+            pose_values.size(1), device=pose_values.device
+        ).unsqueeze(0)
+        pose_values = pose_values.masked_fill(
+            ~(pose_positions < pose_lengths.unsqueeze(1)).unsqueeze(-1), 0.0
+        )
 
         if self.pose_cnn is not None:
-            pose_for_cnn = pose_values.transpose(1, 2) 
-            
-            pose_features = self.pose_cnn(pose_for_cnn) 
-            
-            pose_features = pose_features.transpose(1, 2) 
-            
+            pose_features = pose_values.transpose(1, 2)
+            for layer in self.pose_cnn:
+                pose_features = layer(pose_features)
+                if isinstance(layer, nn.Conv1d):
+                    kernel_size = layer.kernel_size[0]
+                    stride = layer.stride[0]
+                    padding = layer.padding[0]
+                    dilation = layer.dilation[0]
+                    pose_lengths = torch.div(
+                        pose_lengths
+                        + 2 * padding
+                        - dilation * (kernel_size - 1)
+                        - 1,
+                        stride,
+                        rounding_mode="floor",
+                    ) + 1
+                    pose_lengths = pose_lengths.clamp(
+                        min=0, max=pose_features.size(-1)
+                    )
+                output_positions = torch.arange(
+                    pose_features.size(-1), device=pose_features.device
+                ).unsqueeze(0)
+                pose_features = pose_features.masked_fill(
+                    ~(output_positions < pose_lengths.unsqueeze(1)).unsqueeze(1),
+                    0.0,
+                )
+            pose_features = pose_features.transpose(1, 2)
         else:
             pose_features = pose_values
         
@@ -123,9 +165,25 @@ class AutoSignModel(nn.Module):
             pose_and_token_embeddings = token_embeddings
         input_shape = pose_and_token_embeddings.shape
 
+        pose_token_count = pose_embeddings.size(1)
+        pose_attention_mask = (
+            torch.arange(pose_token_count, device=device).unsqueeze(0)
+            < pose_lengths.unsqueeze(1)
+        )
+
         if position_ids is None or past_length == 0:
-            position_ids = torch.arange(past_length, input_shape[1] + past_length, dtype=torch.long, device=device)
-            position_ids = position_ids.unsqueeze(0)
+            pose_position_ids = torch.arange(
+                pose_token_count, dtype=torch.long, device=device
+            ).unsqueeze(0).expand(input_ids.size(0), -1)
+            pose_position_ids = pose_position_ids.masked_fill(
+                ~pose_attention_mask, 0
+            )
+            text_position_ids = pose_lengths.unsqueeze(1) + torch.arange(
+                input_ids.size(1), dtype=torch.long, device=device
+            ).unsqueeze(0)
+            position_ids = torch.concat(
+                [pose_position_ids, text_position_ids], dim=1
+            )
         else:
             position_ids = torch.ones_like(position_ids, device=position_ids.device) * past_length
         position_embeddings = self.positional_embedding(position_ids)
@@ -136,11 +194,9 @@ class AutoSignModel(nn.Module):
         if attention_mask is not None:
             attention_mask = torch.concat(
                 [
-                    torch.ones(
-                        attention_mask.shape[0],
-                        pose_embeddings.shape[-2] if pose_embeddings is not None else past_length,
+                    pose_attention_mask.to(
                         dtype=attention_mask.dtype,
-                        device=attention_mask.device
+                        device=attention_mask.device,
                     ),
                     attention_mask
                 ], dim=-1
@@ -269,10 +325,12 @@ class AutoSignLMHeadModel(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         use_cache: Optional[bool] = False,
         labels: Optional[torch.LongTensor] = None,
+        pose_lengths: Optional[torch.LongTensor] = None,
     ) -> AutoSignLMHeadModelOutput:
         transformer_output = self.transformer(
             pose_values=pose_values,
             input_ids=input_ids,
+            pose_lengths=pose_lengths,
             past_key_values=past_key_values,
             position_ids=position_ids,
             attention_mask=attention_mask,

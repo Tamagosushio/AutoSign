@@ -511,7 +511,8 @@ class PoseDatasetV2(Dataset):
         sample_id = self.files[idx]  
         file_path = str(sample_id) 
         
-        pose = self.readPose(sample_id) 
+        pose = self.readPose(sample_id)
+        pose_length = min(pose.shape[0], 1000)
         pose = self.pad_or_crop_sequence(pose, min_len=32, max_len=1000)
         pose = torch.from_numpy(pose).float()
 
@@ -530,7 +531,8 @@ class PoseDatasetV2(Dataset):
         
         return {
             'file_path': file_path, 
-            'pose_values': pose_flattened, 
+            'pose_values': pose_flattened,
+            'pose_length': pose_length,
             'input_ids': label_tensor,   
             'attention_mask': attention_mask, 
             'labels': label_tensor.clone()   

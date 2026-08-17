@@ -55,6 +55,9 @@ def custom_collate_fn(batch):
     """Custom collate function to handle variable-length sequences"""
     file_paths = [item['file_path'] for item in batch]
     pose_values = [item['pose_values'] for item in batch]
+    pose_lengths = torch.tensor(
+        [item['pose_length'] for item in batch], dtype=torch.long
+    )
     input_ids = [item['input_ids'] for item in batch]
     attention_masks = [item['attention_mask'] for item in batch]
     labels = [item['labels'] for item in batch]
@@ -67,6 +70,7 @@ def custom_collate_fn(batch):
     return {
         'file_path': file_paths,
         'pose_values': pose_values_padded,
+        'pose_lengths': pose_lengths,
         'input_ids': input_ids_padded,
         'attention_mask': attention_masks_padded,
         'labels': labels_padded
@@ -231,8 +235,9 @@ def apply_repetition_penalty(logits, input_ids, repetition_penalty, vocab_info):
     
     return logits
 
-def generate_autoregressive(model, pose_values, vocab_info, device, 
-                           max_length=20, temperature=0.8, repetition_penalty=1.2):
+def generate_autoregressive(model, pose_values, vocab_info, device,
+                           max_length=20, temperature=0.8, repetition_penalty=1.2,
+                           pose_lengths=None):
     """Generate text autoregressively with repetition penalty"""
     model.eval()
     
@@ -247,6 +252,7 @@ def generate_autoregressive(model, pose_values, vocab_info, device,
             
             inputs = {
                 'pose_values': pose_values,
+                'pose_lengths': pose_lengths,
                 'input_ids': generated_ids,
                 'attention_mask': attention_mask,
                 'use_cache': False
@@ -335,17 +341,22 @@ def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info
                 inputs = send_inputs_to_device(inputs, device)
                 
                 pose_values = inputs['pose_values']
+                pose_lengths = inputs['pose_lengths']
                 file_names = batch['file_path']
                 
                 # Get ground truth from labels
                 batch_ground_truths = decode_labels(inputs['labels'], vocab_info)
                 
                 for i in range(pose_values.size(0)):
-                    single_pose = pose_values[i:i+1]
+                    single_pose_length = pose_lengths[i:i+1]
+                    single_pose = pose_values[
+                        i:i+1, :int(single_pose_length.item())
+                    ]
                     
                     # Generate using autoregressive method
                     generated_ids = generate_autoregressive(
-                        model, single_pose, vocab_info, device, 
+                        model, single_pose, vocab_info, device,
+                        pose_lengths=single_pose_length,
                         # max_length=12, temperature=0.9, repetition_penalty=1.0
                         max_length=20, temperature=0.9, repetition_penalty=1.0
                     )
