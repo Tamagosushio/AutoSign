@@ -270,9 +270,8 @@ def generate_autoregressive(model, pose_values, vocab_info, device,
                     next_token_logits, generated_ids, repetition_penalty, vocab_info
                 )
             
-            next_token_logits = next_token_logits / temperature
-            
             if temperature > 0:
+                next_token_logits = next_token_logits / temperature
                 probs = F.softmax(next_token_logits, dim=-1)
                 next_token = torch.multinomial(probs, num_samples=1)
             else:
@@ -357,8 +356,7 @@ def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info
                     generated_ids = generate_autoregressive(
                         model, single_pose, vocab_info, device,
                         pose_lengths=single_pose_length,
-                        # max_length=12, temperature=0.9, repetition_penalty=1.0
-                        max_length=20, temperature=0.9, repetition_penalty=1.0
+                        max_length=20, temperature=0.0, repetition_penalty=1.0
                     )
                     
                     # Decode generated sequence
