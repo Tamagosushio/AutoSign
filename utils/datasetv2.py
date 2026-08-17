@@ -470,28 +470,21 @@ class PoseDatasetV2(Dataset):
             face_joints.append(fc)
             body_joints.append(bd)
 
-        for ljoint_idx in range(len(left_joints) - 2, -1, -1):
-            if left_joints[ljoint_idx].sum() == 0:
-                left_joints[ljoint_idx] = left_joints[ljoint_idx + 1].copy()
+        for joints in (right_joints, left_joints, face_joints, body_joints):
+            for joint_idx in range(len(joints) - 2, -1, -1):
+                if joints[joint_idx].sum() == 0:
+                    joints[joint_idx] = joints[joint_idx + 1].copy()
 
-        for rjoint_idx in range(len(right_joints) - 2, -1, -1):
-            if right_joints[rjoint_idx].sum() == 0:
-                right_joints[rjoint_idx] = right_joints[rjoint_idx + 1].copy()
+        concatenated_joints = np.concatenate((right_joints, left_joints), axis=1)
 
-            concatenated_joints = np.concatenate((right_joints, left_joints), axis=1)
-            
-            if self.additional_joints:
-                # Add face/lips if include_face is True
-                if getattr(self, 'include_face', True):
-                    concatenated_joints = np.concatenate((concatenated_joints, face_joints), axis=1)
-                
-                # Add body if exclude_body is False
-                if not getattr(self, 'exclude_body', False):
-                    concatenated_joints = np.concatenate((concatenated_joints, body_joints), axis=1)
-            
+        if self.additional_joints:
+            if getattr(self, 'include_face', True):
+                concatenated_joints = np.concatenate((concatenated_joints, face_joints), axis=1)
 
-            
-            return concatenated_joints
+            if not getattr(self, 'exclude_body', False):
+                concatenated_joints = np.concatenate((concatenated_joints, body_joints), axis=1)
+
+        return concatenated_joints
         
 
 
