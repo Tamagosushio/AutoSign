@@ -87,15 +87,15 @@ class AutoSignProcessor:
             elif not isinstance(pose_seq, torch.Tensor):
                 pose_seq = torch.tensor(pose_seq, dtype=torch.float32)
             
-            # correct shape: (seq_len, 172)
+            # Accept either a flattened sequence or (sequence, joints, coordinates).
             if len(pose_seq.shape) == 1:
                 pose_seq = pose_seq.unsqueeze(0)
-            elif len(pose_seq.shape) == 3 and pose_seq.shape[-1] == 2:
+            elif len(pose_seq.shape) == 3:
                 pose_seq = pose_seq.reshape(pose_seq.shape[0], -1)
             
-            if pose_seq.shape[-1] != self.config.input_dim * 2:
+            if pose_seq.shape[-1] != self.config.pose_feature_dim:
                 raise ValueError(
-                    f"Expected pose feature dimension {self.config.input_dim * 2}, "
+                    f"Expected pose feature dimension {self.config.pose_feature_dim}, "
                     f"got {pose_seq.shape[-1]}"
                 )
             
@@ -179,4 +179,3 @@ def modified_build_inputs_with_special_tokens(self, token_ids_0, token_ids_1=Non
         return output
 
     return output + bos_token_ids + token_ids_1
-

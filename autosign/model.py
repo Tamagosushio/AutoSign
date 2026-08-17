@@ -28,13 +28,13 @@ class AutoSignModel(nn.Module):
 
         if config.use_1dcnn:
             print(f"Using 1D CNN for pose temporal compression")
-            print(f"Input pose dim: {config.input_dim * 2}")
+            print(f"Input pose dim: {config.pose_feature_dim}")
             print(f"CNN layers: {config.cnn_layers}")
             
             # 2-layer CNN
             if config.cnn_layers == 2:
                 self.pose_cnn = nn.Sequential(
-                    nn.Conv1d(config.input_dim * 2, 256, kernel_size=3, stride=2, padding=1),
+                    nn.Conv1d(config.pose_feature_dim, 256, kernel_size=3, stride=2, padding=1),
                     nn.ReLU(),
                     
                     nn.Conv1d(256, 512, kernel_size=3, stride=2, padding=1),
@@ -45,7 +45,7 @@ class AutoSignModel(nn.Module):
             # 3-layer CNN
             elif config.cnn_layers == 3:
                 self.pose_cnn = nn.Sequential(
-                    nn.Conv1d(config.input_dim * 2, 1024, kernel_size=3, stride=2, padding=1),
+                    nn.Conv1d(config.pose_feature_dim, 1024, kernel_size=3, stride=2, padding=1),
                     nn.ReLU(),
 
                     nn.Conv1d(1024, 512, kernel_size=3, stride=2, padding=1),
@@ -62,10 +62,10 @@ class AutoSignModel(nn.Module):
             
         else:
             print(f"Using direct pose embeddings (no CNN)")
-            print(f"Input pose dim: {config.input_dim * 2}")
+            print(f"Input pose dim: {config.pose_feature_dim}")
 
             self.pose_cnn = None
-            pose_embedding_input_dim = config.input_dim * 2
+            pose_embedding_input_dim = config.pose_feature_dim
         
 
         self.pose_embeddings = nn.Linear(pose_embedding_input_dim, config.hidden_size)

@@ -77,13 +77,20 @@ def custom_collate_fn(batch):
         'labels': labels_padded
     }
 
-def setup_training_data(mode, batch_size=64, use_augmentation=True):
+def setup_training_data(
+    mode,
+    batch_size=64,
+    use_augmentation=True,
+    include_face=False,
+    include_z=False,
+):
     """Setup data loaders"""
     train_csv = f"annotations_v2/{mode}/train.txt" 
     dev_csv = f"annotations_v2/{mode}/dev.txt"   
     pose_list_txt = f"annotations_v2/{mode}/pose_data.txt"
 
-    pose_data_path = "./datasets/all_data.pkl"
+    # pose_data_path = "./datasets/all_data.pkl"
+    pose_data_path = "./datasets/grade5_with_yubimoji-tag.pkl"
     train_pose_files, dev_pose_files, tagged_pose_config = load_pose_data_config(pose_list_txt)
     if tagged_pose_config:
         if not train_pose_files or not dev_pose_files:
@@ -137,7 +144,9 @@ def setup_training_data(mode, batch_size=64, use_augmentation=True):
         transform=transform,
         pose_data_path=train_pose_data_path,
         additional_pose_files=additional_pose_files,
-        include_all_base_samples=include_all_train_base_samples
+        include_all_base_samples=include_all_train_base_samples,
+        include_face=include_face,
+        include_z=include_z,
     )
     
     dataset_dev = PoseDatasetV2(
@@ -147,7 +156,9 @@ def setup_training_data(mode, batch_size=64, use_augmentation=True):
         target_enc_df=dev_processed,
         augmentations=False,
         pose_data_path=dev_pose_data_path,
-        additional_pose_files=additional_dev_pose_files
+        additional_pose_files=additional_dev_pose_files,
+        include_face=include_face,
+        include_z=include_z,
     )
 
     if len(dataset_train) == 0:
@@ -426,14 +437,29 @@ def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info
     return avg_loss, wer_score
 
 
-def enhanced_training_pipeline_with_wer_and_scheduler(mode, gpu_id=0, run_id=1, epochs=100, batch_size=64, use_augmentation=True):
+def enhanced_training_pipeline_with_wer_and_scheduler(
+    mode,
+    gpu_id=0,
+    run_id=1,
+    epochs=100,
+    batch_size=64,
+    use_augmentation=True,
+    include_face=False,
+    include_z=False,
+):
     """Training pipeline with optional learning rate scheduling"""
     print("="*60)
     print("="*60)
     
     # Setup (same as before)
-    train_loader, dev_loader, vocab_info = setup_training_data(mode, batch_size=batch_size, use_augmentation=use_augmentation)
-    work_dir = f"./training_outputs/{mode}/run_{run_id}"
+    train_loader, dev_loader, vocab_info = setup_training_data(
+        mode,
+        batch_size=batch_size,
+        use_augmentation=use_augmentation,
+        include_face=include_face,
+        include_z=include_z,
+    )
+    work_dir = f"./training_outputs_fixed/{mode}/run_{run_id}"
     os.makedirs(work_dir, exist_ok=True)
     
     # Model setup
@@ -444,6 +470,8 @@ def enhanced_training_pipeline_with_wer_and_scheduler(mode, gpu_id=0, run_id=1, 
         vocab_size=vocab_info['vocab_size'],
         attn_implementation='eager',
         gpt2_hf_model=None,
+        include_face=include_face,
+        include_z=include_z,
     )
     
     device_name = f'cuda:{gpu_id}' if torch.cuda.is_available() else 'cpu'
@@ -746,9 +774,15 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=100, help='Number of training epochs (default: 100)')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size for training and dev (default: 64)')
     parser.add_argument('--disable_augmentation', action='store_true', help='Disable all data augmentations during training')
+    parser.add_argument('--include_face', action='store_true', help='Include 19 face/lip keypoints')
+    parser.add_argument('--include_z', action='store_true', help='Use xyz coordinates instead of xy')
     args = parser.parse_args()
 
     print(f"Starting training with mode: {args.mode} on GPU: {args.gpu} for {args.num_runs} runs (Epochs: {args.epochs}, Batch Size: {args.batch_size})")
+    print(
+        f"Pose features: face={'enabled' if args.include_face else 'disabled'}, "
+        f"coordinates={'xyz' if args.include_z else 'xy'}"
+    )
     
     all_best_wers = []
     for run in range(1, args.num_runs + 1):
@@ -758,7 +792,14 @@ if __name__ == "__main__":
             print(f"{'*'*60}\n")
             
         results = enhanced_training_pipeline_with_wer_and_scheduler(
-            args.mode, gpu_id=args.gpu, run_id=run, epochs=args.epochs, batch_size=args.batch_size, use_augmentation=not args.disable_augmentation
+            args.mode,
+            gpu_id=args.gpu,
+            run_id=run,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            use_augmentation=not args.disable_augmentation,
+            include_face=args.include_face,
+            include_z=args.include_z,
         )
         plot_training_curves_with_wer(results)
         all_best_wers.append(results['best_wer'])

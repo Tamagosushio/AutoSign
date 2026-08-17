@@ -187,12 +187,15 @@ NUM_LIPS = 19  # after deduplication
 class PoseDatasetV2(Dataset):
 
     def rotate(self, origin, point, angle):
-        """ Rotates a point around an origin. """
+        """Rotate a point in the xy plane while preserving extra coordinates."""
         ox, oy = origin
-        px, py = point
+        px, py = point[:2]
         qx = ox + np.cos(angle) * (px - ox) - np.sin(angle) * (py - oy)
         qy = oy + np.sin(angle) * (px - ox) + np.cos(angle) * (py - oy)
-        return qx, qy
+        rotated = np.array(point, copy=True)
+        rotated[0] = qx
+        rotated[1] = qy
+        return rotated
 
     def augment_jitter(self, keypoints, std_dev=0.01):
         """ Adds Gaussian noise to keypoints. """
@@ -218,7 +221,7 @@ class PoseDatasetV2(Dataset):
     def augment_scale(self, keypoints, scale_range=(0.8, 1.2)):
         """ Randomly scales keypoints."""
         scale = np.random.uniform(*scale_range)
-        return keypoints * [scale, scale]
+        return keypoints * scale
 
     def augment_frame_dropout(self, pose_data, drop_prob=0.1):
         """ Randomly drops full frames. """
@@ -316,7 +319,8 @@ class PoseDatasetV2(Dataset):
     def __init__(self, dataset_name2, label_csv, split_type, target_enc_df, transform=None, 
                 augmentations=True, augmentations_prob=0.5, additional_joints=True, 
                 augmentation_config='moderate', pose_data_path=None, include_face=False, exclude_body=False,
-                additional_pose_files=None, vocab_map=None, include_all_base_samples=False):
+                additional_pose_files=None, vocab_map=None, include_all_base_samples=False,
+                include_z=False):
 
         self.dataset_name = dataset_name2
         self.split_type = split_type 
@@ -325,7 +329,9 @@ class PoseDatasetV2(Dataset):
         self.augmentations_prob = augmentations_prob
         self.additional_joints = additional_joints
         self.include_face=include_face
-        self.exclude_body = exclude_body    
+        self.exclude_body = exclude_body
+        self.include_z = include_z
+        self.coordinate_dimensions = 3 if include_z else 2
         
         if isinstance(augmentation_config, str):
             if augmentation_config not in AUGMENTATION_CONFIGS:
@@ -457,10 +463,16 @@ class PoseDatasetV2(Dataset):
 
         T, J, D = pose_data.shape
 
-        right_hand = pose_data[:, 0:21, :2]
-        left_hand = pose_data[:, 21:42, :2]
-        lips = pose_data[:, 42:42+NUM_LIPS, :2]
-        body = pose_data[:,42+NUM_LIPS:, :2]
+        if D < self.coordinate_dimensions:
+            raise ValueError(
+                f"Pose sample {sample_id!r} has {D} coordinate dimensions, but "
+                f"{self.coordinate_dimensions} are required when include_z={self.include_z}"
+            )
+
+        right_hand = pose_data[:, 0:21, :self.coordinate_dimensions]
+        left_hand = pose_data[:, 21:42, :self.coordinate_dimensions]
+        lips = pose_data[:, 42:42+NUM_LIPS, :self.coordinate_dimensions]
+        body = pose_data[:,42+NUM_LIPS:, :self.coordinate_dimensions]
 
         right_joints, left_joints, face_joints, body_joints = [], [], [], []
 
@@ -472,26 +484,26 @@ class PoseDatasetV2(Dataset):
             bd = body[ii]
 
             if rh.sum() == 0:
-                rh[:] = right_joints[-1] if ii != 0 else np.zeros((21, 2))
+                rh[:] = right_joints[-1] if ii != 0 else np.zeros_like(rh)
             else:
                 if aug:
                     rh = self.augment_data(rh, angle)
                 rh = self.normalize(rh)
 
             if lh.sum() == 0:
-                lh[:] = left_joints[-1] if ii != 0 else np.zeros((21, 2))
+                lh[:] = left_joints[-1] if ii != 0 else np.zeros_like(lh)
             else:
                 if aug:
                     lh = self.augment_data(lh, angle)
                 lh = self.normalize(lh)
 
             if fc.sum() == 0:
-                fc[:] = face_joints[-1] if ii != 0 else np.zeros((len(fc), 2))
+                fc[:] = face_joints[-1] if ii != 0 else np.zeros_like(fc)
             else:
                 fc = self.normalize_face(fc)
             
             if bd.sum() == 0:
-                bd[:] = body_joints[-1] if ii != 0 else np.zeros((len(bd), 2))
+                bd[:] = body_joints[-1] if ii != 0 else np.zeros_like(bd)
             else:
                 bd = self.normalize_body(bd)
 

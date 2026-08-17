@@ -35,7 +35,8 @@ class AutoSignConfig:
         use_scheduler: bool = True,
         use_1dcnn: bool = True, 
         cnn_layers: int = 2,   
-        exclude_body: bool = False, 
+        exclude_body: bool = False,
+        include_z: bool = False,
     ):
         self.gpt2_hf_model = gpt2_hf_model
         # self.vit_hf_model = vit_hf_model
@@ -58,6 +59,8 @@ class AutoSignConfig:
         self.rotation_angle = rotation_angle  
         self.pose_dropout = pose_dropout
         self.include_face = include_face
+        self.include_z = include_z
+        self.coordinate_dimensions = 3 if include_z else 2
         self.use_scheduler = use_scheduler
         self.use_1dcnn = use_1dcnn
         self.cnn_layers = cnn_layers
@@ -89,6 +92,8 @@ class AutoSignConfig:
             
         else:
             self.input_dim = input_dim
+
+        self.pose_feature_dim = self.input_dim * self.coordinate_dimensions
 
         
             
