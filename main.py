@@ -309,6 +309,8 @@ def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info
     model.eval()
     all_predictions = []
     all_ground_truths = []
+    total_validation_loss = 0.0
+    total_validation_tokens = 0
     
     os.makedirs(f"{work_dir}/pred_outputs", exist_ok=True)
     predictions_file = f"{work_dir}/pred_outputs/predictions_autoregressive_epoch_{epoch+1}.txt"
@@ -328,6 +330,21 @@ def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info
                 pose_values = inputs['pose_values']
                 pose_lengths = inputs['pose_lengths']
                 file_names = batch['file_path']
+
+                validation_outputs = model(**inputs)
+                if validation_outputs.loss is None:
+                    raise RuntimeError(
+                        "Validation loss is unavailable even though labels were provided"
+                    )
+                batch_validation_loss = validation_outputs.loss.item()
+                del validation_outputs
+
+                valid_token_count = int(inputs['attention_mask'][:, 1:].sum().item())
+                if valid_token_count > 0:
+                    total_validation_loss += (
+                        batch_validation_loss * valid_token_count
+                    )
+                    total_validation_tokens += valid_token_count
                 
                 # Get ground truth from labels
                 batch_ground_truths = decode_labels(inputs['labels'], vocab_info)
@@ -382,12 +399,15 @@ def evaluate_model_with_wer_autoregressive(model, dataloader, device, vocab_info
     accuracy = correct / len(all_predictions) if all_predictions else 0.0
     
 
-    avg_loss = 0.0 
+    if total_validation_tokens == 0:
+        raise RuntimeError("Cannot calculate validation loss: no target tokens found")
+    avg_loss = total_validation_loss / total_validation_tokens
     
     model.train()
     print(f"Number of parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
     print(f"Autoregressive evaluation complete:")
     print(f"  Accuracy: {accuracy:.4f}")
+    print(f"  Validation Loss: {avg_loss:.4f}")
     print(f"  WER: {wer_score:.4f}")
     print(f"  Predictions saved to: {predictions_file}")
     
